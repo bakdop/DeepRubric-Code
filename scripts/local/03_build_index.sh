@@ -5,10 +5,15 @@
 set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/config.sh"
 
-echo "==> [1/3] building subset (KEEP_ONE_IN=$KEEP_ONE_IN MAX_PASSAGES=$MAX_PASSAGES)"
-"$PY" "$DR_ROOT/tools/prep_wiki_subset.py" \
-  --src "$WIKI_RAW" --out "$WIKI_ASSETS" \
-  --keep-one-in "$KEEP_ONE_IN" --max-passages "$MAX_PASSAGES"
+# --index-only skips subsetting: use it when the subset came from 02b_import_subset.sh
+if [ "${1:-}" = "--index-only" ]; then
+  echo "==> [1/3] skipped (using existing subset in $WIKI_ASSETS)"
+else
+  echo "==> [1/3] building subset (KEEP_ONE_IN=$KEEP_ONE_IN MAX_PASSAGES=$MAX_PASSAGES)"
+  "$PY" "$DR_ROOT/tools/prep_wiki_subset.py" \
+    --src "$WIKI_RAW" --out "$WIKI_ASSETS" \
+    --keep-one-in "$KEEP_ONE_IN" --max-passages "$MAX_PASSAGES"
+fi
 
 IFS=',' read -ra GPUS <<< "$INDEX_GPUS"
 N=${#GPUS[@]}

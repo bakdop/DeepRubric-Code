@@ -26,6 +26,53 @@ upstream README leaves out — the released assets are **not** sufficient to run
   If the linear-attention kernels turn out to need sm90, fall back to a plain
   dense/MoE model (e.g. `Qwen3-30B-A3B`) by setting `MODEL_PATH`.
 
+## Where the data comes from, and how to not download 61GB
+
+| Source | HF repo | Size |
+| --- | --- | --- |
+| Wikipedia | `inclusionAI/ASearcher-Local-Knowledge` (dataset) | 61 GB — 23.5 + 26.6 + 10.8 |
+| OpenScholar | `OpenSciLM/OpenScholar-DataStore-V3` (dataset) | 693 GiB |
+| e5 encoder | `intfloat/e5-base-v2` (model) | 2.1 GB whole repo, **439 MB** actually needed |
+
+The e5 repo carries onnx/openvino/`pytorch_model.bin` duplicates of the same
+weights; `02_download_data.sh` `--include`s only the six files that matter.
+
+**On a bandwidth-capped cluster, copy the derived subset instead of downloading
+the raw corpus.** The subset is what the pipeline actually reads:
+
+| What | Size |
+| --- | --- |
+| `wiki_corpus.jsonl` + `wiki_webpages.jsonl` + `wikilinks.json` | 2.9 GB |
+| minimal e5 encoder | 0.44 GB |
+| **subtotal — rebuild the index locally** | **≈3.4 GB** |
+| `e5.index/e5_Flat.index`, if you would rather skip the GPU minutes | +4.0 GB |
+
+That is ~18× less traffic than pulling 61 GB and then building the subset yourself.
+
+```bash
+# on the target box
+SRC=user@host:/path/to/wiki-assets bash scripts/local/02b_import_subset.sh
+bash scripts/local/03_build_index.sh --index-only     # minutes on 8 GPUs
+# or: SRC=... WITH_INDEX=1 bash scripts/local/02b_import_subset.sh  (no GPU work)
+```
+
+### Proxy / mirror
+
+`huggingface_hub` uses `requests`, so it honours `HTTP_PROXY` / `HTTPS_PROXY` /
+`NO_PROXY`. Two caveats:
+
+- `hf_transfer` (the fast Rust downloader) does **not** reliably honour proxy env
+  vars. `02_download_data.sh` sets `HF_HUB_ENABLE_HF_TRANSFER=0` for that reason.
+- A mirror is usually better than a proxy: `export HF_ENDPOINT=https://hf-mirror.com`.
+
+`hf download` resumes from partial files, so an interrupted transfer just needs the
+same command again.
+
+**OpenScholar is 693 GiB and is only needed for the `recursive_qa_agent_v44`
+branch.** Its `/search` service additionally needs the `embeddings/*.pkl` shards
+and a built index — downloading only `passages/` gets you root sampling but no
+working retrieval. On a metered link, skip this branch entirely.
+
 ## Disk budget
 
 | Item | Size |
