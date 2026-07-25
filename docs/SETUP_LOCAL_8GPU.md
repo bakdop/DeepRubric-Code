@@ -139,6 +139,19 @@ branch.** Its `/search` service additionally needs the `embeddings/*.pkl` shards
 and a built index — downloading only `passages/` gets you root sampling but no
 working retrieval. On a metered link, skip this branch entirely.
 
+### `[Errno 122] Disk quota exceeded` during vLLM startup
+
+Usually an **inode** quota, not a byte quota. torch.compile and Triton emit
+thousands of tiny files under `~/.cache/vllm/torch_compile_cache/.../triton/`.
+On the NYU Torch cluster `$HOME` allows 30k files (and 50GB), so the file count
+runs out while ~46GB is still free. `config.sh` redirects `XDG_CACHE_HOME`,
+`VLLM_CACHE_ROOT`, `TRITON_CACHE_DIR`, `TORCHINDUCTOR_CACHE_DIR` and `HF_HOME`
+away from `$HOME`. Check both columns when you see this:
+
+```bash
+myquota          # NYU; elsewhere: quota -s, or df -i on the mount
+```
+
 ## Disk budget
 
 | Item | Size |

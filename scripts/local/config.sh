@@ -74,5 +74,16 @@ export N_SAMPLES="${N_SAMPLES:-1}"
 export MAX_DEPTH="${MAX_DEPTH:-3}"
 export OUT_DIR="${OUT_DIR:-$DR_ROOT/outputs}"
 
+# torch.compile/Triton write thousands of small files. On clusters with an inode
+# quota on $HOME this blows up as [Errno 122] Disk quota exceeded during vLLM
+# startup, with plenty of free bytes. Park every cache next to the data instead.
+export DR_CACHE="${DR_CACHE:-$DR_DATA/.cache}"
+export XDG_CACHE_HOME="${XDG_CACHE_HOME:-$DR_CACHE}"
+export VLLM_CACHE_ROOT="${VLLM_CACHE_ROOT:-$DR_CACHE/vllm}"
+export TRITON_CACHE_DIR="${TRITON_CACHE_DIR:-$DR_CACHE/triton}"
+export TORCHINDUCTOR_CACHE_DIR="${TORCHINDUCTOR_CACHE_DIR:-$DR_CACHE/torchinductor}"
+export HF_HOME="${HF_HOME:-$DR_CACHE/huggingface}"
+mkdir -p "$XDG_CACHE_HOME" "$VLLM_CACHE_ROOT" "$TRITON_CACHE_DIR" "$TORCHINDUCTOR_CACHE_DIR"
+
 export LOGDIR="${LOGDIR:-$OUT_DIR/logs}"
 mkdir -p "$LOGDIR"

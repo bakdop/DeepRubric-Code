@@ -33,6 +33,15 @@ LOGDIR=$REPO/outputs/setup_logs
 export PATH="$(dirname "$PY"):$PATH"
 
 export HF_HOME=/scratch/bl4363/hf_cache
+# torch.compile/Triton emit thousands of tiny files. Their default home is
+# ~/.cache, and /home here is capped at 30k inodes (91% used) -> the build dies
+# with [Errno 122] Disk quota exceeded even though 46GB is free. Keep every
+# cache on /scratch, which is capped at 5M inodes.
+export XDG_CACHE_HOME=/scratch/bl4363/.cache
+export VLLM_CACHE_ROOT=/scratch/bl4363/.cache/vllm
+export TRITON_CACHE_DIR=/scratch/bl4363/triton_cache
+export TORCHINDUCTOR_CACHE_DIR=/scratch/bl4363/torchinductor_cache
+mkdir -p "$XDG_CACHE_HOME" "$VLLM_CACHE_ROOT" "$TRITON_CACHE_DIR" "$TORCHINDUCTOR_CACHE_DIR"
 export OPENAI_BASE_URL=http://localhost:8008/v1
 export OPENAI_API_KEY=EMPTY
 export MODEL_NAME=qwen3.5-122b
