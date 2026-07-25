@@ -24,6 +24,7 @@ from typing import List, Dict, Any, Optional
 from qa_synthesis_agent_openai_v9 import (
     ConstructQAPrompts,
     OpenAIAPIClient,
+    extract_json_obj,
 )
 import asyncio, aiohttp
 
@@ -254,7 +255,7 @@ class RecursiveQAAgent:
         )
         text = await self.call_llm(prompt, client)
         try:
-            parsed = json.loads(text.split("```json")[-1].split("```")[0].strip())
+            parsed = extract_json_obj(text) or {}
             if isinstance(parsed.get("statements"), list):
                 stmts = [s.strip() for s in parsed["statements"] if isinstance(s, str) and s.strip()]
                 # simple dedup preserving order
@@ -300,7 +301,7 @@ Return JSON:
 }}"""
         text = await self.call_llm(prompt, client)
         try:
-            parsed = json.loads(text.split("```json")[-1].split("```")[0].strip())
+            parsed = extract_json_obj(text) or {}
             # print(parsed)
             if isinstance(parsed.get("queries"), list):
                 return [q for q in parsed["queries"] if isinstance(q, str) and q.strip()][: self.max_children]
@@ -340,7 +341,7 @@ Return JSON:
 }}"""
         text = await self.call_llm(prompt, client)
         try:
-            parsed = json.loads(text.split("```json")[-1].split("```")[0].strip())
+            parsed = extract_json_obj(text) or {}
             print(parsed)
             if isinstance(parsed.get("queries"), list):
                 return [q for q in parsed["queries"] if isinstance(q, str) and q.strip()][: limit]
@@ -375,7 +376,7 @@ Return JSON:
 Stop only if additional branching is unlikely to add novel, decision-relevant evidence."""
         text = await self.call_llm(gate_prompt, client)
         try:
-            parsed = json.loads(text.split("```json")[-1].split("```")[0].strip())
+            parsed = extract_json_obj(text) or {}
             return bool(parsed.get("stop", False)), parsed.get("reason") or "llm_gate"
         except Exception:
             return False, "gate_parse_fail"
@@ -446,14 +447,9 @@ Stop only if additional branching is unlikely to add novel, decision-relevant ev
             if summary:
                 stmts.append(summary)
         # information points JSON list
-        if "```json" in info_text and "```" in info_text.split("```json")[-1]:
-            try:
-                info_json = info_text.split("```json")[-1].split("```")[0].strip()
-                infos = json.loads(info_json)
-                if isinstance(infos, list):
-                    stmts.extend([s for s in infos if isinstance(s, str)])
-            except Exception:
-                pass
+        infos = extract_json_obj(info_text)
+        if isinstance(infos, list):
+            stmts.extend([s for s in infos if isinstance(s, str)])
 
         # fallback: add first 2 paragraphs if stmts still empty
         if not stmts:
@@ -579,7 +575,9 @@ Stop only if additional branching is unlikely to add novel, decision-relevant ev
         enriched_content = json.dumps(tree_payload, ensure_ascii=False)
         base_qa = await self.call_llm(BASE_QA_TREE_PROMPT.format(content=enriched_content), qa_client)
         try:
-            qa = json.loads(base_qa.split("```json")[-1].split("```")[0].strip())
+            qa = extract_json_obj(base_qa) or {}
+            if not qa.get("question"):
+                raise ValueError("BASE_QA_TREE_PROMPT reply had no parseable question")
         except Exception:
             qa = {"question": root_query, "rubrics": []}
 

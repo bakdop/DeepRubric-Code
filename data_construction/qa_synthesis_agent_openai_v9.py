@@ -41,6 +41,38 @@ class RetrieveSearchClient:
                 
                 return content
 
+
+def extract_json_obj(text):
+    """Tolerant JSON extraction from an LLM reply.
+
+    The original pipeline assumed `text.split("```json")[-1].split("```")[0]`,
+    which only works for models that always emit a fenced block. Reasoning-style
+    models (e.g. Qwen3.5) prepend a plain-text "Thinking Process:" section and
+    frequently omit the fence, so that expression hands the whole essay to
+    json.loads. This mirrors _extract_json_obj in recursive_qa_quality_filter.py:
+    try fenced blocks last-to-first, then the outermost {...}/[...] span, then the
+    raw text. Returns None instead of raising.
+    """
+    if not text or not isinstance(text, str):
+        return None
+    candidates = []
+    fences = re.findall(r"```(?:json)?\s*(.*?)\s*```", text, flags=re.DOTALL | re.IGNORECASE)
+    candidates.extend(reversed(fences))
+    for pattern in (r"\{.*\}", r"\[.*\]"):
+        m = re.search(pattern, text, flags=re.DOTALL)
+        if m:
+            candidates.append(m.group(0))
+    candidates.append(text)
+    for cand in candidates:
+        try:
+            parsed = json.loads(cand.strip())
+        except Exception:
+            continue
+        if isinstance(parsed, (dict, list)):
+            return parsed
+    return None
+
+
 class ConstructQAPrompts:
     # base & link qa construct
     base_qa = '''You are an autonomous agent for proposing **deep-research seed questions**.
