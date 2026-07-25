@@ -47,6 +47,14 @@ export UV_DEFAULT_INDEX="${UV_DEFAULT_INDEX:-$PIP_INDEX_URL}"
 # link. It does NOT reliably honour HTTP(S)_PROXY, so turn it off if you must
 # go through a proxy.
 export HF_HUB_ENABLE_HF_TRANSFER="${HF_HUB_ENABLE_HF_TRANSFER:-1}"
+# huggingface_hub defaults both timeouts to 10s, which a cross-border hop to a
+# mirror routinely exceeds -> httpx.ReadTimeout before anything downloads.
+export HF_HUB_ETAG_TIMEOUT="${HF_HUB_ETAG_TIMEOUT:-60}"
+export HF_HUB_DOWNLOAD_TIMEOUT="${HF_HUB_DOWNLOAD_TIMEOUT:-60}"
+# hf_hub >=1.24 fetches an agent-detection registry on top of the real request;
+# it is unrelated to the transfer but still blocks and can time out.
+export HF_HUB_DISABLE_TELEMETRY="${HF_HUB_DISABLE_TELEMETRY:-1}"
+export DO_NOT_TRACK="${DO_NOT_TRACK:-1}"
 
 # ---- endpoints --------------------------------------------------------------
 export VLLM_PORT="${VLLM_PORT:-8008}"

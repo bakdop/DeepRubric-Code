@@ -95,6 +95,24 @@ means the host was never reached. In order of likelihood:
    `unset HTTP_PROXY HTTPS_PROXY ALL_PROXY http_proxy https_proxy all_proxy`.
 3. The mirror itself is flaky — retry, or switch `HF_ENDPOINT` to a site mirror.
 
+### `httpx.ReadTimeout: The read operation timed out`
+
+Different failure: the host *was* reached, it just did not answer in time.
+`huggingface_hub` defaults both timeouts to **10s**, which a cross-border hop to a
+mirror routinely exceeds. `config.sh` raises them and turns off the telemetry
+request that `hf_hub >= 1.24` issues alongside the real one (it shows up in the
+traceback as `_detect_agent.py:_fetch_registry` and is unrelated to your download):
+
+```bash
+export HF_HUB_ETAG_TIMEOUT=60
+export HF_HUB_DOWNLOAD_TIMEOUT=60
+export HF_HUB_DISABLE_TELEMETRY=1
+export DO_NOT_TRACK=1
+```
+
+`02_download_data.sh` also retries each repo up to `HF_RETRIES` (default 5) times
+with a 30s backoff, which costs nothing because `hf download` resumes.
+
 Check reachability directly; both should answer:
 
 ```bash
