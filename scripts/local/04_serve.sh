@@ -4,7 +4,7 @@ set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/config.sh"
 
 echo "vLLM  : $MODEL_PATH  tp=$TP_SIZE  gpus=$VLLM_GPUS  port=$VLLM_PORT"
-echo "retr. : gpu=$RETRIEVER_GPU  port=$RETRIEVER_PORT"
+echo "retr. : gpu=$RETRIEVER_GPU  bind=$RETRIEVER_HOST:$RETRIEVER_PORT"
 
 CUDA_VISIBLE_DEVICES="$VLLM_GPUS" "$PY" -m vllm.entrypoints.openai.api_server \
   --model "$MODEL_PATH" \
@@ -35,12 +35,16 @@ for i in $(seq 1 240); do
 done
 
 echo "waiting for retriever (loads corpus + index) ..."
+RETR_READY=0
 for i in $(seq 1 240); do
-  curl -sf -X POST "http://localhost:$RETRIEVER_PORT/retrieve" -H 'Content-Type: application/json' \
-    -d '{"queries":["test"],"topk":1,"return_scores":true}' >/dev/null && { echo "retriever UP"; break; }
+  curl -sf -X POST "$WIKI_RETRIEVER_URL" -H 'Content-Type: application/json' \
+    -d '{"queries":["test"],"topk":1,"return_scores":true}' >/dev/null && { RETR_READY=1; echo "retriever UP"; break; }
   kill -0 $RETR_PID 2>/dev/null || { echo "retriever DIED - see $LOGDIR/retriever.log"; exit 1; }
   sleep 10
 done
+# Fail loudly: otherwise generation runs against a dead retriever and every tree
+# comes out empty, with exit code 0 and no error anywhere.
+[ "$RETR_READY" = 1 ] || { echo "retriever NEVER became ready at $WIKI_RETRIEVER_URL"; tail -5 "$LOGDIR/retriever.log"; exit 1; }
 
 echo "both services ready. run scripts/local/05_generate.sh in another shell."
 wait

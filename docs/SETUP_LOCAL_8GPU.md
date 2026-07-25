@@ -198,6 +198,38 @@ KEEP_ONE_IN=1 MAX_PASSAGES=999999999 \
 Full scale also needs ~100GB RAM for the retriever's `PageAccess` dict and for
 `recursive_qa_agent_v4.py`'s own pages dict.
 
+## The retriever does not listen on localhost
+
+`local_retrieval_server.py` ends with
+
+```python
+host_ip  = socket.gethostbyname(socket.gethostname())
+host_addr = f"{host_ip}:{port}"
+uvicorn.Config(app, host=host_addr.split(":")[0], ...)
+```
+
+so it binds to the machine's routable IP, **not** `localhost` or `0.0.0.0`.
+`http://localhost:8888/retrieve` is refused with `[Errno 111] Connect call
+failed`. `config.sh` resolves the same address into `RETRIEVER_HOST` and builds
+`WIKI_RETRIEVER_URL` from it; override `RETRIEVER_HOST` if your host resolves
+oddly.
+
+This one is nasty because nothing fails loudly. `retrieve_snippets` catches the
+connection error, prints one `[WARN] retrieve failed`, and returns `[]`. Every
+node then has no snippets, `extract_statements` short-circuits to `[]`, no child
+queries are proposed, `should_stop` fires `no_child_queries`, and you get a
+single-node tree with `statements: []` — plus a fluent-looking question and five
+rubrics invented with no evidence at all. Exit code 0 throughout.
+
+Always check a finished sample before trusting a batch:
+
+```bash
+python -c "import json,sys; o=json.load(open(sys.argv[1])); \
+  print('statements', len(o['statements'])); print(o['tree_repr'])" outputs/.../<uuid>.jsonl
+```
+
+A healthy `depth=3` tree has tens of nodes and a non-empty `statements` list.
+
 ## The invariant that will silently ruin your data
 
 `local_retrieval_server.py` does `load_docs(corpus, idxs)` — a FAISS row number is

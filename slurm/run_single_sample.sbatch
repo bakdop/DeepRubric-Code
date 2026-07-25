@@ -49,6 +49,13 @@ export TOKENIZERS_PARALLELISM=false
 
 mkdir -p $LOGDIR
 
+# local_retrieval_server.py binds uvicorn to socket.gethostbyname(gethostname()),
+# NOT to localhost/0.0.0.0, so http://localhost:8888 is refused. Resolve the same
+# address the server will pick and talk to that.
+RETR_HOST=$($PY -c "import socket;print(socket.gethostbyname(socket.gethostname()))")
+RETR_URL="http://$RETR_HOST:8888/retrieve"
+echo "retriever will be reachable at $RETR_URL"
+
 # ---------------------------------------------------------------- vLLM (GPU 0,1)
 CUDA_VISIBLE_DEVICES=0,1 $PY -m vllm.entrypoints.openai.api_server \
   --model /scratch/bl4363/models/Qwen3.5-122B-A10B \
@@ -87,16 +94,20 @@ CUDA_VISIBLE_DEVICES=0 $PY $REPO/retrievers/wiki/code/local_retrieval_server.py 
 RETR_PID=$!
 
 echo "waiting for retriever ..."
+RETR_READY=0
 for i in $(seq 1 180); do
-  curl -sf -X POST http://localhost:8888/retrieve \
+  curl -sf -X POST "$RETR_URL" \
     -H 'Content-Type: application/json' \
-    -d '{"queries":["test"],"topk":1,"return_scores":true}' > /dev/null && { echo "retriever UP after $((i*10))s"; break; }
+    -d '{"queries":["test"],"topk":1,"return_scores":true}' > /dev/null && { RETR_READY=1; echo "retriever UP after $((i*10))s"; break; }
   kill -0 $RETR_PID 2>/dev/null || { echo "retriever DIED - see $LOGDIR/retriever_$SLURM_JOB_ID.log"; exit 1; }
   sleep 10
 done
+# Without this the loop just falls through after 30 minutes and generation runs
+# against a dead retriever, silently producing empty trees.
+[ "$RETR_READY" = 1 ] || { echo "retriever NEVER became ready at $RETR_URL"; tail -5 $LOGDIR/retriever_$SLURM_JOB_ID.log; exit 1; }
 
 # smoke-test the retriever so we can see a real hit in the log
-curl -s -X POST http://localhost:8888/retrieve -H 'Content-Type: application/json' \
+curl -s -X POST "$RETR_URL" -H 'Content-Type: application/json' \
   -d '{"queries":["Alain Connes Fields Medal"],"topk":2,"return_scores":true}' | head -c 800; echo
 
 # ------------------------------------------------------- generate the samples
@@ -111,7 +122,7 @@ for D in 1 3; do
     --pages $SUB/wiki_webpages.jsonl \
     --links $SUB/wikilinks.json \
     --save $OUT \
-    --retriever-url http://localhost:8888/retrieve \
+    --retriever-url "$RETR_URL" \
     --qa-model $MODEL_NAME \
     --extract-model $MODEL_NAME \
     --max_depth $D \

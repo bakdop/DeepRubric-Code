@@ -67,7 +67,11 @@ export VLLM_PORT="${VLLM_PORT:-8008}"
 export RETRIEVER_PORT="${RETRIEVER_PORT:-8888}"
 export OPENAI_BASE_URL="${OPENAI_BASE_URL:-http://localhost:$VLLM_PORT/v1}"
 export OPENAI_API_KEY="${OPENAI_API_KEY:-EMPTY}"
-export WIKI_RETRIEVER_URL="${WIKI_RETRIEVER_URL:-http://localhost:$RETRIEVER_PORT/retrieve}"
+# local_retrieval_server.py binds uvicorn to socket.gethostbyname(gethostname()),
+# not localhost/0.0.0.0, so http://localhost:PORT is refused. Resolve the same
+# address the server picks. Override RETRIEVER_HOST if your box resolves oddly.
+export RETRIEVER_HOST="${RETRIEVER_HOST:-$(python3 -c 'import socket;print(socket.gethostbyname(socket.gethostname()))' 2>/dev/null || echo 127.0.0.1)}"
+export WIKI_RETRIEVER_URL="${WIKI_RETRIEVER_URL:-http://$RETRIEVER_HOST:$RETRIEVER_PORT/retrieve}"
 
 # ---- generation -------------------------------------------------------------
 export N_SAMPLES="${N_SAMPLES:-1}"
