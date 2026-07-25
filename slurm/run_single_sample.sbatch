@@ -26,6 +26,12 @@ SUB=/scratch/bl4363/data/ASearcher-subset
 PY=/scratch/bl4363/uvenvs/deeprubric/bin/python
 LOGDIR=$REPO/outputs/setup_logs
 
+# Qwen3.5's GDN linear-attention kernels JIT-compile at load and look up `ninja`
+# on PATH. We invoke python by absolute path (never `activate`), so the venv's
+# bin/ is not on PATH and vLLM dies with FileNotFoundError: 'ninja' even though
+# the package is installed. Put it on PATH explicitly.
+export PATH="$(dirname "$PY"):$PATH"
+
 export HF_HOME=/scratch/bl4363/hf_cache
 export OPENAI_BASE_URL=http://localhost:8008/v1
 export OPENAI_API_KEY=EMPTY

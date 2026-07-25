@@ -20,6 +20,14 @@ upstream README leaves out — the released assets are **not** sufficient to run
 - 8×80GB = 640GB. A bf16 `Qwen3.5-122B-A10B` is ~234GB, so `TP_SIZE=2` or `4` is
   comfortable. A 35B-A3B (~67GB) runs at `TP_SIZE=1`.
 - **A800 is Ampere (sm80): bf16 only, no fp8.** Do not pass `--quantization fp8`.
+- **`ninja` must be installed.** Qwen3.5's GDN (gated delta net) linear-attention
+  kernels JIT-compile at load time and shell out to `ninja`. Without it every TP
+  worker dies with `FileNotFoundError: [Errno 2] No such file or directory:
+  'ninja'` and the engine never initialises — it looks like a model-support
+  problem but is just a missing build tool. `01_setup_env.sh` installs it and
+  prints its path. Note the tool is looked up **on PATH**, so installing the
+  package is not enough if you invoke python by absolute path without activating
+  the venv; `config.sh` prepends `$DR_VENV/bin` to PATH for exactly this reason.
 - Qwen3.5 is a hybrid linear-attention MoE. `01_setup_env.sh` prints whether your
   vLLM build registers `Qwen3_5MoeForConditionalGeneration` and what compute
   capability each GPU reports — check that line before assuming the model serves.

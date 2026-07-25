@@ -7,6 +7,10 @@ export DR_ROOT="${DR_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
 export DR_DATA="${DR_DATA:-$DR_ROOT/../deeprubric-data}"
 export DR_VENV="${DR_VENV:-$DR_ROOT/../deeprubric-venv}"
 export PY="${PY:-$DR_VENV/bin/python}"
+# The scripts call python by absolute path rather than activating the venv, so
+# put the venv's bin/ on PATH explicitly: vLLM shells out to `ninja` (and other
+# build tools) by name when it JIT-compiles Qwen3.5's GDN attention kernels.
+export PATH="$DR_VENV/bin:$PATH"
 
 export WIKI_RAW="${WIKI_RAW:-$DR_DATA/ASearcher-Local-Knowledge}"
 export OPENSCHOLAR_RAW="${OPENSCHOLAR_RAW:-$DR_DATA/OpenScholar-DataStore-V3}"
