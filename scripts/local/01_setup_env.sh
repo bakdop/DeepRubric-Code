@@ -9,9 +9,11 @@ if ! command -v uv >/dev/null 2>&1; then
   export PATH="$HOME/.local/bin:$PATH"
 fi
 
+echo "pip index : $UV_DEFAULT_INDEX"
 uv venv --python 3.12 "$DR_VENV"
-uv pip install --python "$DR_VENV/bin/python" \
-  vllm openai aiohttp tqdm transformers datasets fastapi uvicorn faiss-cpu "huggingface_hub[cli]"
+uv pip install --python "$DR_VENV/bin/python" --index-url "$UV_DEFAULT_INDEX" \
+  vllm openai aiohttp tqdm transformers datasets fastapi uvicorn faiss-cpu \
+  "huggingface_hub[cli]" hf_transfer
 
 "$DR_VENV/bin/python" - <<'PY'
 import vllm, torch, transformers, faiss

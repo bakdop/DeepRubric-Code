@@ -7,15 +7,13 @@ source "$(dirname "${BASH_SOURCE[0]}")/config.sh"
 HF="$DR_VENV/bin/hf"
 mkdir -p "$DR_DATA"
 
-# --- behind a proxy / bandwidth-capped network -------------------------------
-# Set HTTP_PROXY / HTTPS_PROXY / NO_PROXY in your shell; huggingface_hub uses
-# requests and honours them. hf_transfer is a Rust downloader that does NOT
-# reliably honour proxy env vars, so it is disabled here.
-# A mirror usually beats a proxy outright:  export HF_ENDPOINT=https://hf-mirror.com
-export HF_HUB_ENABLE_HF_TRANSFER="${HF_HUB_ENABLE_HF_TRANSFER:-0}"
-[ -n "${HF_ENDPOINT:-}" ] && echo "using HF_ENDPOINT=$HF_ENDPOINT"
-[ -n "${HTTPS_PROXY:-}" ] && echo "using HTTPS_PROXY=$HTTPS_PROXY"
-echo "NOTE: downloads resume; re-run this script after an interruption."
+# Mirrors are configured in config.sh (HF_ENDPOINT / PIP_INDEX_URL).
+echo "HF_ENDPOINT           = ${HF_ENDPOINT:-https://huggingface.co}"
+echo "HF_HUB_ENABLE_HF_TRANSFER = ${HF_HUB_ENABLE_HF_TRANSFER:-0}"
+[ -n "${HTTPS_PROXY:-}" ] && {
+  echo "WARNING: HTTPS_PROXY is set. hf_transfer does not reliably honour it;"
+  echo "         export HF_HUB_ENABLE_HF_TRANSFER=0 if downloads stall."; }
+echo "NOTE: downloads resume - just re-run this script after an interruption."
 
 echo "==> Wikipedia (ASearcher-Local-Knowledge, ~61GB)"
 "$HF" download inclusionAI/ASearcher-Local-Knowledge --repo-type dataset --local-dir "$WIKI_RAW"
@@ -27,6 +25,10 @@ echo "==> e5-base-v2 encoder (NOT shipped with the ASearcher release)"
   --include "config.json" "model.safetensors" "tokenizer.json" \
              "tokenizer_config.json" "vocab.txt" "special_tokens_map.json"
 
+# Required for the recursive_qa_agent_v44 (academic) branch. 694GiB:
+#   passages/   353GiB  raw text, required
+#   embeddings/ 341GiB  precomputed pes2o_contriever vectors; you can instead
+#               recompute them locally with retrieval-scaling's src/embed.py
 if [ "${WITH_OPENSCHOLAR:-0}" = "1" ]; then
   echo "==> OpenScholar DataStore V3 (~693GiB)"
   "$HF" download OpenSciLM/OpenScholar-DataStore-V3 --repo-type dataset --local-dir "$OPENSCHOLAR_RAW"

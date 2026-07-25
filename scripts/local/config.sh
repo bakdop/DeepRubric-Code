@@ -32,6 +32,18 @@ export VLLM_GPUS="${VLLM_GPUS:-$(seq -s, 0 $((TP_SIZE-1)))}"
 export RETRIEVER_GPU="${RETRIEVER_GPU:-7}"
 export INDEX_GPUS="${INDEX_GPUS:-0,1,2,3,4,5,6,7}"
 
+# ---- mirrors (China networks) ----------------------------------------------
+# HuggingFace: hf-mirror.com is the usual community mirror. If your site runs its
+# own HF mirror, point HF_ENDPOINT at it instead. Unset it to use huggingface.co.
+export HF_ENDPOINT="${HF_ENDPOINT:-https://hf-mirror.com}"
+# PyPI: Tsinghua TUNA.
+export PIP_INDEX_URL="${PIP_INDEX_URL:-https://pypi.tuna.tsinghua.edu.cn/simple}"
+export UV_DEFAULT_INDEX="${UV_DEFAULT_INDEX:-$PIP_INDEX_URL}"
+# hf_transfer parallelises downloads and is a big win on a direct (non-proxied)
+# link. It does NOT reliably honour HTTP(S)_PROXY, so turn it off if you must
+# go through a proxy.
+export HF_HUB_ENABLE_HF_TRANSFER="${HF_HUB_ENABLE_HF_TRANSFER:-1}"
+
 # ---- endpoints --------------------------------------------------------------
 export VLLM_PORT="${VLLM_PORT:-8008}"
 export RETRIEVER_PORT="${RETRIEVER_PORT:-8888}"

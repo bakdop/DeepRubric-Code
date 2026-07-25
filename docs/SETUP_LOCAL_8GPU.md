@@ -56,14 +56,23 @@ bash scripts/local/03_build_index.sh --index-only     # minutes on 8 GPUs
 # or: SRC=... WITH_INDEX=1 bash scripts/local/02b_import_subset.sh  (no GPU work)
 ```
 
-### Proxy / mirror
+### Mirrors (preferred over a proxy)
 
-`huggingface_hub` uses `requests`, so it honours `HTTP_PROXY` / `HTTPS_PROXY` /
-`NO_PROXY`. Two caveats:
+`config.sh` defaults to mirrors, so no proxy is needed:
 
-- `hf_transfer` (the fast Rust downloader) does **not** reliably honour proxy env
-  vars. `02_download_data.sh` sets `HF_HUB_ENABLE_HF_TRANSFER=0` for that reason.
-- A mirror is usually better than a proxy: `export HF_ENDPOINT=https://hf-mirror.com`.
+```bash
+export HF_ENDPOINT=https://hf-mirror.com                       # HuggingFace
+export PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple  # PyPI (Tsinghua TUNA)
+```
+
+`HF_ENDPOINT` is honoured by `huggingface_hub`, the `hf` CLI, and `hf_transfer`
+alike; `01_setup_env.sh` passes `PIP_INDEX_URL` to `uv pip install --index-url`.
+If your site runs its own HF mirror, point `HF_ENDPOINT` at that instead. Tsinghua
+mirrors PyPI/conda but not HuggingFace, which is why the two settings differ.
+
+`hf_transfer` is **enabled** by default — it parallelises range requests and is a
+large speedup on a direct link. It does *not* reliably honour `HTTP(S)_PROXY`, so
+if you are forced through a proxy, set `HF_HUB_ENABLE_HF_TRANSFER=0`.
 
 `hf download` resumes from partial files, so an interrupted transfer just needs the
 same command again.
