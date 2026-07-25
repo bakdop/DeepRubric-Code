@@ -12,6 +12,7 @@ CUDA_VISIBLE_DEVICES="$VLLM_GPUS" "$PY" -m vllm.entrypoints.openai.api_server \
   --tensor-parallel-size "$TP_SIZE" \
   --gpu-memory-utilization "$GPU_MEM_UTIL" \
   --max-model-len "$MAX_MODEL_LEN" \
+  --max-num-seqs "$MAX_NUM_SEQS" \
   --port "$VLLM_PORT" > "$LOGDIR/vllm.log" 2>&1 &
 VLLM_PID=$!
 

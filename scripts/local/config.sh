@@ -30,6 +30,12 @@ export SERVED_MODEL_NAME="${SERVED_MODEL_NAME:-qwen3.5-122b}"
 export TP_SIZE="${TP_SIZE:-4}"
 export GPU_MEM_UTIL="${GPU_MEM_UTIL:-0.90}"
 export MAX_MODEL_LEN="${MAX_MODEL_LEN:-16384}"
+# Qwen3.5's GDN linear attention is Mamba-like: every concurrent decode sequence
+# consumes one Mamba cache block. vLLM's default max_num_seqs=1024 exceeds what
+# fits beside the weights and aborts during CUDA graph capture. Tree expansion is
+# a sequential DFS (concurrency 1 per tree, Semaphore(32) across trees), so a
+# small value is both sufficient and cheaper.
+export MAX_NUM_SEQS="${MAX_NUM_SEQS:-64}"
 
 # GPUs: vLLM takes the first TP_SIZE, the retriever takes RETRIEVER_GPU.
 export VLLM_GPUS="${VLLM_GPUS:-$(seq -s, 0 $((TP_SIZE-1)))}"

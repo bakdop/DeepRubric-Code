@@ -28,6 +28,13 @@ upstream README leaves out — the released assets are **not** sufficient to run
   prints its path. Note the tool is looked up **on PATH**, so installing the
   package is not enough if you invoke python by absolute path without activating
   the venv; `config.sh` prepends `$DR_VENV/bin` to PATH for exactly this reason.
+- **Lower `max_num_seqs`.** Qwen3.5's GDN linear attention is Mamba-like, so each
+  concurrent decode sequence needs one Mamba cache block. With the weights
+  resident, vLLM's default `max_num_seqs=1024` does not fit and engine init dies
+  with `max_num_seqs (1024) exceeds available Mamba cache blocks (N) ... CUDA
+  graph capture cannot proceed`. `MAX_NUM_SEQS` defaults to 64 here, which is
+  ample: tree expansion is a sequential DFS, so concurrency is 1 per tree and at
+  most `asyncio.Semaphore(32)` across trees.
 - Qwen3.5 is a hybrid linear-attention MoE. `01_setup_env.sh` prints whether your
   vLLM build registers `Qwen3_5MoeForConditionalGeneration` and what compute
   capability each GPU reports — check that line before assuming the model serves.
