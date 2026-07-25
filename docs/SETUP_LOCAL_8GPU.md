@@ -70,6 +70,30 @@ alike; `01_setup_env.sh` passes `PIP_INDEX_URL` to `uv pip install --index-url`.
 If your site runs its own HF mirror, point `HF_ENDPOINT` at that instead. Tsinghua
 mirrors PyPI/conda but not HuggingFace, which is why the two settings differ.
 
+`HF_ENDPOINT` is read at **import** time, so export it before starting the
+process — changing it mid-run has no effect.
+
+### `httpx.RemoteProtocolError: Server disconnected without sending a response`
+
+Recent `huggingface_hub` uses `httpx` (older versions used `requests`; both read
+`HTTP_PROXY`/`HTTPS_PROXY`). This particular traceback ends in `api.repo_info()`,
+i.e. the **metadata** call that runs before any file transfer, and the connection
+was dropped at the TCP/TLS layer rather than answered with a status code. That
+means the host was never reached. In order of likelihood:
+
+1. `HF_ENDPOINT` is unset, so it is talking to `huggingface.co` directly.
+   `echo $HF_ENDPOINT` — if empty, export the mirror and retry.
+2. A stale proxy variable points somewhere dead:
+   `unset HTTP_PROXY HTTPS_PROXY ALL_PROXY http_proxy https_proxy all_proxy`.
+3. The mirror itself is flaky — retry, or switch `HF_ENDPOINT` to a site mirror.
+
+Check reachability directly; both should answer:
+
+```bash
+curl -sI https://hf-mirror.com | head -1
+curl -s https://hf-mirror.com/api/datasets/inclusionAI/ASearcher-Local-Knowledge | head -c 200
+```
+
 `hf_transfer` is **enabled** by default — it parallelises range requests and is a
 large speedup on a direct link. It does *not* reliably honour `HTTP(S)_PROXY`, so
 if you are forced through a proxy, set `HF_HUB_ENABLE_HF_TRANSFER=0`.
