@@ -1,0 +1,125 @@
+# Running the question+rubric pipeline on a standalone 8-GPU box
+
+Written for an 8×A800-80G machine with no slurm. Everything here is what the
+upstream README leaves out — the released assets are **not** sufficient to run
+`recursive_qa_agent_v4.py` as documented.
+
+## What upstream is missing
+
+| Upstream says | Reality |
+| --- | --- |
+| `$WIKI_RETRIEVER_ROOT/e5.index/e5_Flat.index` | **Not in the HF dataset.** Only 3 jsonl files ship. You must build the index yourself. |
+| `$WIKI_RETRIEVER_ROOT/e5-base-v2/` | **Not in the HF dataset.** Pull `intfloat/e5-base-v2` separately. |
+| `wikilinks.json` | The release ships `wikilinks.jsonl`. It is actually a **single-line JSON dict**, so `json.load` works — only the filename differs. |
+| — | `recursive_qa_agent_v4.py:611-614` loads the *entire* `wiki_webpages.jsonl` into a dict. At full scale that is 26.6GB of JSON → 100GB+ RAM. |
+
+`tools/prep_wiki_subset.py` and `tools/build_e5_index.py` in this repo fill those gaps.
+
+## Hardware notes for A800
+
+- 8×80GB = 640GB. A bf16 `Qwen3.5-122B-A10B` is ~234GB, so `TP_SIZE=2` or `4` is
+  comfortable. A 35B-A3B (~67GB) runs at `TP_SIZE=1`.
+- **A800 is Ampere (sm80): bf16 only, no fp8.** Do not pass `--quantization fp8`.
+- Qwen3.5 is a hybrid linear-attention MoE. `01_setup_env.sh` prints whether your
+  vLLM build registers `Qwen3_5MoeForConditionalGeneration` and what compute
+  capability each GPU reports — check that line before assuming the model serves.
+  If the linear-attention kernels turn out to need sm90, fall back to a plain
+  dense/MoE model (e.g. `Qwen3-30B-A3B`) by setting `MODEL_PATH`.
+
+## Disk budget
+
+| Item | Size |
+| --- | --- |
+| Wikipedia raw (`ASearcher-Local-Knowledge`) | 61 GB |
+| Wikipedia subset @ `KEEP_ONE_IN=20` + index | ~5 GB |
+| Wikipedia **full** corpus + Flat index | ~24 GB + ~80 GB |
+| OpenScholar DataStore V3 (optional) | 693 GiB |
+| python env (vLLM + CUDA wheels) | ~30 GB |
+
+## Steps
+
+```bash
+git clone -b bl4363/pipeline-run https://github.com/bakdop/DeepRubric-Code.git
+cd DeepRubric-Code
+
+# Everything is configured through scripts/local/config.sh; override via env.
+export DR_DATA=/data/deeprubric            # where corpora live
+export DR_VENV=/data/deeprubric-venv
+export MODEL_PATH=/path/to/Qwen3.5-122B-A10B
+export TP_SIZE=4
+
+bash scripts/local/01_setup_env.sh         # venv + vllm; prints GPU/arch check
+bash scripts/local/02_download_data.sh     # 61GB; WITH_OPENSCHOLAR=1 adds 693GiB
+bash scripts/local/03_build_index.sh       # subset + 8-GPU index build + merge
+bash scripts/local/04_serve.sh             # vLLM + retriever, stays in foreground
+# ... in a second shell:
+MAX_DEPTH=1 bash scripts/local/05_generate.sh   # fast plumbing check
+MAX_DEPTH=3 bash scripts/local/05_generate.sh   # the shipped default
+```
+
+### Scale knobs
+
+`KEEP_ONE_IN` controls the subset. Sampling is at **article** level (every passage
+of a kept article is kept) so retrieval inside the subset still supports multi-hop
+drilling on kept topics — a flat random passage sample would not.
+
+```bash
+KEEP_ONE_IN=20 bash scripts/local/03_build_index.sh   # ~1.3M passages, 4GB index (default)
+KEEP_ONE_IN=1 MAX_PASSAGES=999999999 \
+  bash scripts/local/03_build_index.sh                # full ~26M passages, ~80GB index
+```
+
+Full scale also needs ~100GB RAM for the retriever's `PageAccess` dict and for
+`recursive_qa_agent_v4.py`'s own pages dict.
+
+## The invariant that will silently ruin your data
+
+`local_retrieval_server.py` does `load_docs(corpus, idxs)` — a FAISS row number is
+used **directly as a corpus line number**. The index stores only vectors, never
+text. If the index and `wiki_corpus.jsonl` are one line out of sync, retrieval
+returns unrelated passages, and nothing raises: you just get quietly garbage
+evidence, and the generated rubrics will be grounded in the wrong facts.
+
+Both `build_e5_index.py` and `merge_faiss_shards.py` therefore assert
+`corpus lines == index rows` at the end. **Do not skip that check**, and rebuild
+the index whenever you regenerate the corpus subset.
+
+The multi-GPU build shards by **contiguous** line ranges, so concatenating shards
+in id order reproduces corpus order. A round-robin split would not.
+
+## Encoder contract
+
+`build_e5_index.py` mirrors `Encoder` in the vendored server exactly:
+`"passage: "` prefix, mean pooling over the attention mask, L2 normalisation,
+`IndexFlatIP` (inner product on normalised vectors == cosine). Queries get
+`"query: "` at serve time. Changing any one of these on only one side degrades
+retrieval without any error.
+
+## Model roles
+
+The two `--*-model` flags are separate on purpose (upstream defaults in brackets):
+
+| Flag | Used for | Upstream default |
+| --- | --- | --- |
+| `--extract-model` | root summary, per-node evidence extraction, child-query proposal — runs at every node | `Qwen/Qwen3.5-35B-A3B-Instruct` (local) |
+| `--qa-model` | branch gate, and the single `BASE_QA_TREE_PROMPT` call that produces the question + rubrics | `deepseek/deepseek-chat` (API) |
+
+`OpenAIAPIClient` reads a single `OPENAI_BASE_URL`, so upstream's config implies a
+multi-model gateway. `05_generate.sh` points both roles at one local server; to
+reproduce upstream, put a LiteLLM-style proxy in front and set the two model names
+to whatever that proxy routes.
+
+## Expected cost per sample
+
+Defaults are `max_depth=3`, `root_children=6`, `mid_children=4`, `max_children=3`,
+`max_nodes=50`. Expansion is a **sequential DFS** — no concurrency inside one tree,
+only across trees (`asyncio.Semaphore(32)`). Per sample that is roughly:
+
+- 1 retrieval per node (topk=5), ~50 nodes
+- 2 LLM calls per node (extract + propose), plus 1 gate call per non-leaf
+- 2 root seeding calls + 1 final synthesis call
+- ≈ 110-150 LLM calls total
+
+Because the node budget is a single global counter checked during DFS, the tree
+comes out **lopsided**: the first depth-1 subtrees expand fully and later siblings
+degenerate into leaves once `node_count >= max_nodes`.
