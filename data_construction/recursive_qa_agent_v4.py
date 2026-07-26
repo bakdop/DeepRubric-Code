@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import random
 import uuid
 from dataclasses import dataclass, field
@@ -186,7 +187,10 @@ class RecursiveQAAgent:
     # ---- LLM helpers ----
     async def call_llm(self, prompt: str, client: OpenAIAPIClient) -> str:
         print(prompt)
-        sampling_kwargs = dict(temperature=0.4, top_p=0.95, max_new_tokens=4096)
+        # Reasoning-style models spend several hundred tokens on a preamble before
+        # the JSON starts; 4096 truncated BASE_QA_TREE_PROMPT mid-object.
+        sampling_kwargs = dict(temperature=0.4, top_p=0.95,
+                               max_new_tokens=int(os.environ.get('DR_MAX_NEW_TOKENS', 8192)))
         out = await client.async_generate(prompt, sampling_kwargs)
         return out["text"]
 
@@ -319,7 +323,8 @@ Return JSON:
             if isinstance(parsed.get("queries"), list):
                 return [q for q in parsed["queries"] if isinstance(q, str) and q.strip()][: limit]
         except Exception as e:
-            print(f"[WARN] propose_child_queries_v2 parse failed: {e}")
+            print(f"[WARN] propose_child_queries_v2 parse failed: {e} "
+                  f"len={len(text or '')} tail={(text or '')[-200:]!r}")
         return []
 
     async def should_stop(self, depth: int, child_queries: List[str], statements: List[str], client) -> (bool, str):
@@ -547,11 +552,13 @@ Stop only if additional branching is unlikely to add novel, decision-relevant ev
         )
         enriched_content = json.dumps(tree_payload, ensure_ascii=False)
         base_qa = await self.call_llm(BASE_QA_TREE_PROMPT.format(content=enriched_content), qa_client)
-        try:
-            qa = extract_json_obj(base_qa) or {}
-            if not qa.get("question"):
-                raise ValueError("BASE_QA_TREE_PROMPT reply had no parseable question")
-        except Exception:
+        qa = extract_json_obj(base_qa) or {}
+        if not isinstance(qa, dict) or not qa.get("question"):
+            # Falling back silently here is what made earlier runs look successful
+            # while emitting question == root_query and rubrics == []. Keep the
+            # fallback so one bad sample cannot kill a batch, but leave evidence.
+            print(f"[WARN] BASE_QA_TREE_PROMPT unparseable; len={len(base_qa or '')} "
+                  f"head={(base_qa or '')[:200]!r} tail={(base_qa or '')[-200:]!r}")
             qa = {"question": root_query, "rubrics": []}
 
         uid = str(uuid.uuid4())
