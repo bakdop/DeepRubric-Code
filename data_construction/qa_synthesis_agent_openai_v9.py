@@ -43,35 +43,43 @@ class RetrieveSearchClient:
 
 
 def extract_json_obj(text):
-    """Tolerant JSON extraction from an LLM reply.
+    r"""Tolerant JSON extraction from an LLM reply.
 
     The original pipeline assumed `text.split("```json")[-1].split("```")[0]`,
-    which only works for models that always emit a fenced block. Reasoning-style
-    models (e.g. Qwen3.5) prepend a plain-text "Thinking Process:" section and
-    frequently omit the fence, so that expression hands the whole essay to
-    json.loads. This mirrors _extract_json_obj in recursive_qa_quality_filter.py:
-    try fenced blocks last-to-first, then the outermost {...}/[...] span, then the
-    raw text. Returns None instead of raising.
+    which only works for models that always fence their JSON. Reasoning-style
+    models (e.g. Qwen3.5) open with a plain-text "Thinking Process:" section and
+    often omit the fence, so that expression hands the whole essay to json.loads.
+
+    A greedy `\{.*\}` is no better: the reasoning quotes the schema, so it spans
+    from a brace inside the prose to the last brace of the real payload. Instead,
+    scan for every position where a JSON value actually starts and keep the
+    widest one that decodes -- the answer is always the largest JSON in the reply.
+    Returns None instead of raising.
     """
     if not text or not isinstance(text, str):
         return None
-    candidates = []
-    fences = re.findall(r"```(?:json)?\s*(.*?)\s*```", text, flags=re.DOTALL | re.IGNORECASE)
-    candidates.extend(reversed(fences))
-    for pattern in (r"\{.*\}", r"\[.*\]"):
-        m = re.search(pattern, text, flags=re.DOTALL)
-        if m:
-            candidates.append(m.group(0))
-    candidates.append(text)
-    for cand in candidates:
-        try:
-            parsed = json.loads(cand.strip())
-        except Exception:
-            continue
-        if isinstance(parsed, (dict, list)):
-            return parsed
-    return None
 
+    def _widest(blob):
+        decoder = json.JSONDecoder()
+        best, best_span = None, -1
+        for i, ch in enumerate(blob):
+            if ch not in "{[":
+                continue
+            try:
+                obj, end = decoder.raw_decode(blob, i)
+            except ValueError:
+                continue
+            if isinstance(obj, (dict, list)) and end - i > best_span:
+                best, best_span = obj, end - i
+        return best
+
+    # Prefer a fenced block, last one first: models often echo the template first.
+    for fence in reversed(re.findall(r"```(?:json)?\s*(.*?)\s*```",
+                                     text, flags=re.DOTALL | re.IGNORECASE)):
+        found = _widest(fence)
+        if found is not None:
+            return found
+    return _widest(text)
 
 class ConstructQAPrompts:
     # base & link qa construct
